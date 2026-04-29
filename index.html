@@ -334,7 +334,14 @@
 </head>
 <body>
   <div class="bg-video-wrap" id="videoWrap" aria-hidden="true">
-    <video id="bgVideo" playsinline loop preload="auto" src="assets/intro.mp4"></video>
+    <video
+      id="bgVideo"
+      playsinline
+      webkit-playsinline
+      loop
+      preload="auto"
+      src="assets/intro.mp4"
+    ></video>
   </div>
   <div class="sun-wash" aria-hidden="true"></div>
   <div class="sun-rays" aria-hidden="true"></div>
@@ -430,16 +437,74 @@
         setTimeout(runPostIntro, INTRO_MS);
       }
 
-      async function startPlayback() {
-        video.muted = false;
-        try {
+      function openExperience() {
+        tapGate.classList.add("hidden");
+        beginIntroClock();
+      }
+
+      function videoErrorMessage() {
+        var err = video.error;
+        if (!err) return "Video will not play";
+        if (err.code === 1) return "Playback was aborted";
+        if (err.code === 2) return "Network error while loading video";
+        if (err.code === 3) return "Video decode failed";
+        if (err.code === 4) return "Video format not supported here";
+        return "Video will not play";
+      }
+
+      function startPlayback() {
+        function tryUnmutedThenMuted() {
           video.volume = 1;
-          await video.play();
-          tapGate.classList.add("hidden");
-          beginIntroClock();
-        } catch (e) {
-          showToast("Could not start audio");
+          video.muted = false;
+          var p = video.play();
+          if (p === undefined) {
+            openExperience();
+            return;
+          }
+          p.then(openExperience).catch(function () {
+            video.muted = true;
+            var p2 = video.play();
+            if (p2 === undefined) {
+              openExperience();
+              return;
+            }
+            p2.then(function () {
+              video.muted = false;
+              video.volume = 1;
+              openExperience();
+            }).catch(function () {
+              showToast(videoErrorMessage());
+            });
+          });
         }
+
+        if (video.readyState >= 2) {
+          tryUnmutedThenMuted();
+          return;
+        }
+
+        function onReady() {
+          video.removeEventListener("canplay", onReady);
+          video.removeEventListener("error", onVideoErr);
+          clearTimeout(t);
+          tryUnmutedThenMuted();
+        }
+        function onVideoErr() {
+          video.removeEventListener("canplay", onReady);
+          video.removeEventListener("error", onVideoErr);
+          clearTimeout(t);
+          showToast(videoErrorMessage());
+        }
+        video.addEventListener("canplay", onReady);
+        video.addEventListener("error", onVideoErr, { once: true });
+        var t = setTimeout(function () {
+          video.removeEventListener("canplay", onReady);
+          video.removeEventListener("error", onVideoErr);
+          showToast("Video is slow to load. Check your connection.");
+        }, 15000);
+        try {
+          video.load();
+        } catch (ignore) {}
       }
 
       tapGate.addEventListener("click", startPlayback);
@@ -450,10 +515,11 @@
         }
       });
 
-      video.muted = false;
+      video.muted = true;
       video.volume = 1;
       video.play()
         .then(function () {
+          video.muted = false;
           tapGate.classList.add("hidden");
           beginIntroClock();
         })
